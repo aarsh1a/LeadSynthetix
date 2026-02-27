@@ -24,5 +24,5 @@ def ingest_pdf(
         extracted_data=extracted.model_dump(),
     )
     db.add(doc)
-    db.commit()
+    db.flush()  # let caller manage transaction
     return extracted

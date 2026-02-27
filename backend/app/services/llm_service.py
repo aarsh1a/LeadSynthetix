@@ -53,3 +53,20 @@ class LLMService:
         except Exception:
             pass
         return None
+
+    def complete_text(self, prompt: str, max_tokens: int = 600) -> str | None:
+        """Run completion and return plain text content. Used for chat responses."""
+        if not self._client:
+            return None
+        try:
+            resp = self._client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=0.3,
+            )
+            if resp.choices and resp.choices[0].message.content:
+                return resp.choices[0].message.content.strip()
+        except Exception:
+            pass
+        return None

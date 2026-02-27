@@ -5,7 +5,7 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql://user:password@localhost:5432/lendsynthetix"
+    database_url: str = "sqlite:///./lendsynthetix.db"
     openai_api_key: str | None = None
 
     class Config:

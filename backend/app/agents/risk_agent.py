@@ -17,12 +17,38 @@ Return ONLY valid JSON in this exact structure:
 Score: higher for strong DSCR (>1.25), low leverage, stable cash flow. Lower for weak DSCR, high debt.
 Flags: list risk concerns (e.g. low DSCR, high leverage)."""
 
+    DEBATE_PROMPT = """You are a risk agent in a multi-agent debate about a loan application.
+You have seen the other agents' arguments below. Respond to their points, challenge
+optimistic assumptions with data, and update your score if their arguments are compelling.
+Be specific about which agent's points you agree or disagree with.
+Return ONLY valid JSON in this exact structure:
+{"memo": "<your rebuttal/updated memo>", "score": <0-100>, "flags": ["<flag1>"]}"""
+
     def __init__(self, llm: LLMService) -> None:
         self._llm = llm
 
-    def evaluate(self, financials: dict[str, Any]) -> AgentResult:
-        """Generate memo, score, flags from structured financial JSON."""
-        prompt = f"""{self.SYSTEM_PROMPT}
+    def evaluate(
+        self,
+        financials: dict[str, Any],
+        prior_memos: list[dict[str, Any]] | None = None,
+    ) -> AgentResult:
+        """Generate memo, score, flags. If prior_memos provided, this is a debate round."""
+        if prior_memos:
+            memos_text = "\n".join(
+                f"[{m['agent']}] (score {m['score']}): {m['memo']}"
+                for m in prior_memos
+            )
+            prompt = f"""{self.DEBATE_PROMPT}
+
+Financial data:
+{json.dumps(financials, indent=2)}
+
+Prior agent memos:
+{memos_text}
+
+Return JSON only."""
+        else:
+            prompt = f"""{self.SYSTEM_PROMPT}
 
 Financial data:
 {json.dumps(financials, indent=2)}

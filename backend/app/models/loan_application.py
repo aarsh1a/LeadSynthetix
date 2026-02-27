@@ -28,7 +28,7 @@ class LoanApplication(Base):
         String(20), nullable=False, default="INGESTED"
     )  # INGESTED | INITIAL_REVIEW | DEBATE | CONSENSUS | FINALIZED
     final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    compliance_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    compliance_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

@@ -2,7 +2,6 @@
 Run workflow with explicit agent results (for deterministic testing).
 """
 
-import math
 from typing import Any
 
 from app.models.loan_application import LoanApplication
@@ -10,13 +9,30 @@ from app.orchestration.states import WorkflowState
 from app.agents.schemas import AgentResult
 
 
-def _confidence_from_variance(scores: list[float]) -> float:
-    if len(scores) < 2:
-        return 1.0
-    mean = sum(scores) / len(scores)
-    variance = sum((s - mean) ** 2 for s in scores) / len(scores)
-    std = math.sqrt(variance)
-    return round(max(0.2, 1.0 - (std / 50)), 2)
+def _confidence_from_variance(sales_score: float, risk_score: float) -> float:
+    """Compute confidence (0-1) from Sales vs Risk score variance.
+
+    Confidence reflects consensus strength between Sales and Risk agents.
+    Higher variance (disagreement) produces lower confidence.
+
+    Mapping:
+        variance  0-10  → 90-100% confidence
+        variance 10-20  → 70-90%  confidence
+        variance 20-40  → 50-70%  confidence
+        variance  >40   → <50%    confidence (floor at 10%)
+    """
+    variance = abs(sales_score - risk_score)
+
+    if variance <= 10:
+        confidence = 1.0 - 0.01 * variance
+    elif variance <= 20:
+        confidence = 0.9 - 0.02 * (variance - 10)
+    elif variance <= 40:
+        confidence = 0.7 - 0.01 * (variance - 20)
+    else:
+        confidence = max(0.1, 0.5 - 0.005 * (variance - 40))
+
+    return round(confidence, 2)
 
 
 def run_workflow_with_results(
@@ -45,10 +61,23 @@ def run_workflow_with_results(
         "auto_rejected": False,
     }
 
-    if loan.compliance_flag:
+    # Compliance veto: keyword flag OR agent score < 30 OR agent flagged keywords
+    compliance_veto = (
+        loan.compliance_flag
+        or compliance_result.score < 30
+        or any(
+            kw in f.lower()
+            for f in compliance_result.flags
+            for kw in ("aml", "grey list", "offshore", "sanction", "blocked")
+        )
+    )
+
+    if compliance_veto:
         loan.status = "Rejected"
         loan.final_score = 0.0
         loan.confidence_score = 1.0
+        loan.compliance_flag = True
+        loan.workflow_state = WorkflowState.FINALIZED.value
         output["final_score"] = 0.0
         output["final_decision"] = "Rejected"
         output["confidence_score"] = 1.0
@@ -61,16 +90,21 @@ def run_workflow_with_results(
     if moderator_result and diff > 20:
         output["moderator_score"] = moderator_result.score
 
-    sales_for_final = sales_result.score
-    risk_for_final = risk_result.score
-    final_score = 0.4 * sales_for_final - 0.4 * risk_for_final
+    # Final score: blend moderator when triggered
+    if moderator_result and diff > 20:
+        final_score = (
+            0.3 * sales_result.score
+            - 0.3 * risk_result.score
+            + 0.2 * (moderator_result.score - 50)
+        )
+    else:
+        final_score = 0.4 * sales_result.score - 0.4 * risk_result.score
     loan.final_score = round(final_score, 2)
     loan.status = "Approved" if loan.final_score > 20 else "Rejected"
 
-    scores = [sales_result.score, risk_result.score, compliance_result.score]
-    if moderator_result and diff > 20:
-        scores.append(moderator_result.score)
-    loan.confidence_score = _confidence_from_variance(scores)
+    loan.confidence_score = _confidence_from_variance(sales_result.score, risk_result.score)
+
+    loan.workflow_state = WorkflowState.FINALIZED.value
 
     output["final_score"] = loan.final_score
     output["final_decision"] = loan.status
